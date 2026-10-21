@@ -29,8 +29,8 @@ python build_release.py
 ```
 
 This writes `dist/Whole Launcher <version>.zip`. The version comes from `VERSION` in
-`launcher/whole_launcher.py`. Tag `v1.0.0` rebuilds the 1.0.0 file on Nexus with byte-identical
-contents.
+`launcher/whole_launcher.py`. Each tag rebuilds that version's file on Nexus with byte-identical contents (`v1.0.0`,
+`v1.1.0`).
 
 ## Running it from source
 
@@ -72,4 +72,28 @@ there is no Python, it prints where to get one.
 - `tfbw/juice.py`, `tfbw/locpack.py`: the game's text data and string tables.
 - `tfbw/mods.py`, `tfbw/pack.py`, `tfbw/engine.py`: mod loading, merging, packing, installing.
 - `tfbw/gamefind.py`: finds the game folder (Steam or Ubisoft Connect).
-- `tfbw/recipes.py`: helpers that mod generator scripts can use.
+- `tfbw/recipes.py`: helpers that mod generator scripts can use (status effects, gates, new
+  artifacts with icons, shop entries).
+- `tfbw/dds.py`: writes DDS textures (item icons) for generator scripts.
+
+## Changes
+
+### 1.1.0
+
+- **Mods can build on each other.** Generator scripts now see the files earlier mods'
+  generators made (in load order), so two mods can add to the same game script instead of
+  one replacing the other. `toc.vanilla` still gives the untouched game files.
+- **New strings.** A mod's `loc/*.tsv` can add brand-new text (for a new item) with a `+` in
+  front of the string id. Unknown ids without `+` are still reported as errors.
+- **Line-break fix.** The game silently ignores its text data files (`.juice`, `.mitem` and
+  others) when they have Unix line breaks. The launcher now converts them to Windows line
+  breaks while packing and says so in the log.
+- **New helpers for mod makers** in `tfbw/recipes.py`: brand-new artifacts (item, stats,
+  icon, shop listings), artifact-equipped and enemy-only gates, statuses that trigger other
+  statuses, and effects when an enemy dies. `tfbw/dds.py` is new for item icons.
+- `Whole Launcher.bat` also works when it sits next to `whole_launcher.py`.
+- `MODDING.md` documents new strings and generators that build on earlier mods.
+
+### 1.0.0
+
+- First release.

@@ -6,7 +6,9 @@ py -3 -c "import tkinter" >nul 2>nul && set "PYW=pyw -3"
 if not defined PYW python -c "import sys, tkinter; sys.exit(0 if sys.version_info >= (3, 8) else 1)" >nul 2>nul && set "PYW=pythonw"
 if not defined PYW goto nopython
 rem any .zip files dragged onto this .bat are added as mods
-start "" %PYW% "files\whole_launcher.py" %*
+set "SCRIPT=files\whole_launcher.py"
+if not exist "%SCRIPT%" set "SCRIPT=whole_launcher.py"
+start "" %PYW% "%SCRIPT%" %*
 exit /b 0
 
 :nopython

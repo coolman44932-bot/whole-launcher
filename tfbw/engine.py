@@ -10,12 +10,13 @@ A game is modded like this, and only like this:
 Uninstall restores the backup and deletes the new archive. Original archives are never changed.
 """
 import importlib.util
+import json
 import os
 import shutil
 import subprocess
 import tempfile
 
-from . import gamefind, mods, pack, sdf
+from . import bvm, gamefind, mods, pack, sdf
 
 PART = 2999
 BACKUP_NAME = 'sdf.sdftoc.before-mods'
@@ -156,10 +157,66 @@ class Game:
 
 
 # ---- building ---------------------------------------------------------------------
+class LayeredToc:
+    """The game index as generators see it: game files, with the files that earlier mods'
+    generators produced (in load order) laid on top. So two mods can patch the same graph,
+    e.g. Nurgle's Rot (contagion) and an artifact that adds to the same Grossed Out script.
+    `vanilla` is the untouched index (node templates should come from there)."""
+
+    def __init__(self, base):
+        self.vanilla = base
+        self.files = {}                        # game path (lower) -> bytes
+
+    def get(self, name):
+        low = name.lower()
+        if low in self.files:
+            return ('layer', low)
+        return self.vanilla.get(name)
+
+    def read(self, entry, *args, **kw):
+        if isinstance(entry, tuple) and entry[:1] == ('layer',):
+            return self.files[entry[1]]
+        return self.vanilla.read(entry, *args, **kw)
+
+    def __getattr__(self, name):
+        return getattr(self.vanilla, name)
+
+    def add_mod_output(self, mod_dir):
+        """register what a mod's generators wrote (camel/... files, .json compiled)"""
+        added = []
+        camel = os.path.join(mod_dir, 'camel')
+        for dirpath, _, names in os.walk(camel):
+            for n in names:
+                full = os.path.join(dirpath, n)
+                gp = os.path.relpath(full, mod_dir).replace(os.sep, '/').lower()
+                data = open(full, 'rb').read()
+                if gp.endswith('.json') and self.vanilla.get(gp) is None:
+                    gp = gp[:-5]
+                    data = bvm.dumps(bvm.from_json(json.loads(data.decode('utf-8-sig'))))
+                self.files[gp] = data
+                added.append(gp)
+        return added
+
+
+def _generated(mod_dir):
+    """camel/ files under mod_dir, as {game path (lower): mod-relative key}"""
+    out = {}
+    for dirpath, _, names in os.walk(os.path.join(mod_dir, 'camel')):
+        for n in names:
+            key = os.path.relpath(os.path.join(dirpath, n), mod_dir).replace(os.sep, '/').lower()
+            out[key[:-5] if key.endswith('.json') else key] = key
+    return out
+
+
 def prepare(toc, order, work, log=print):
     """Copy the enabled mods into `work` and run their generators there. Returns Mod objects
-    (same order and enabled flags) that point at the prepared copies."""
+    (same order and enabled flags) that point at the prepared copies.
+
+    Generators see a LayeredToc: a graph an earlier mod generated is handed to later
+    generators already patched, and the later (combined) copy replaces the earlier one."""
     out = []
+    layered = LayeredToc(getattr(toc, 'vanilla', toc))
+    owner = {}                                  # game path -> (prepared Mod, its file key)
     for m in order:
         if not m.enabled:
             out.append(m)
@@ -173,9 +230,18 @@ def prepare(toc, order, work, log=print):
             spec.loader.exec_module(module)
             if not hasattr(module, 'build'):
                 raise GameError('%s: %s has no build(toc, mod_dir) function' % (m.id, os.path.basename(gen)))
-            module.build(toc, dst)
+            module.build(layered, dst)
         copy = mods.Mod(m.id, dst)
         copy.meta, copy.enabled = m.meta, True
+        layered.add_mod_output(dst)
+        for gp, key in _generated(dst).items():
+            # a generator read the earlier mod's version through `layered`, so its copy holds
+            # both mods' edits; a plain shipped file is a real replacement and stays a conflict
+            if gp in owner and m.generators:
+                prev, prev_key = owner[gp]
+                prev.files.pop(prev_key, None)
+                log('  %s builds on %s\'s %s' % (m.id, prev.id, gp.rsplit('/', 1)[-1]))
+            owner[gp] = (copy, key)
         out.append(copy)
     return out
 

@@ -33,7 +33,7 @@ from tfbw import engine, mods  # noqa: E402
 
 TITLE = 'Whole Launcher'
 AUTHOR = 'Coolman559654'
-VERSION = '1.0.0'
+VERSION = '1.1.0'
 
 # colours
 BG, PANEL, PANEL2, LINE = '#1d2026', '#272b33', '#30353f', '#3a404b'

@@ -51,6 +51,13 @@ include camel/game system data/juice/statuseffect/bleeding.juice
 The string id is in the juice file next to the text (`guid = #...`). Respect its
 `maxLength`.
 
+A brand-new string (for a new item, say) starts with `+`. Pick your own 32-hex-digit id
+and use the same id in the juice file that shows it:
+
+```
++57C3D0B1A5E14C29000000F2D4E8B6A3	Censer of the Plaguefather
+```
+
 ## Generators (generators/*.py): edit node graphs without shipping game files
 
 Graphs (`.mskillscriptgraph` and other BVM files) are whole game files, so instead of
@@ -61,12 +68,18 @@ def build(toc, mod_dir):
     ...
 ```
 
-- `toc` is the player's original game index (`toc.read(toc.get(path))` gives a file's bytes).
+- `toc` is the player's game index (`toc.read(toc.get(path))` gives a file's bytes). It
+  already includes what earlier mods' generators made (load order), so two mods can patch
+  the same graph: read the file through `toc`, add your nodes, save. `toc.vanilla` is the
+  untouched index, for copying template nodes.
 - Write results into `mod_dir`, for example with `tfbw.recipes.save(root, mod_dir, game_path)`.
   That saves `mod_dir/<game path>.json`, which the packer compiles back to binary.
 - Available modules: `tfbw.bvm` (read/write BVM), `tfbw.graph` (nodes and wires),
-  `tfbw.recipes` (proven patterns: apply a status, enemies-only gate, status steps in
-  animations), `tfbw.juice`, `tfbw.sdf`.
+  `tfbw.recipes` (proven patterns: apply a status, enemies-only gate, artifact-equipped
+  gate, status steps in animations), `tfbw.juice`, `tfbw.sdf`.
+- A generator may also write new game files (a new item's `.mitem`, its icon PNG) and
+  whole text files (append a block to `artifacts.juice`); other mods' tweaks still apply
+  on top of a replaced text file.
 - Copy the game's own nodes instead of building them from scratch. Every recipe does this.
 
 ## Lessons learned the hard way

@@ -26,6 +26,16 @@ from collections import defaultdict
 from . import bvm, juice, locpack
 
 LOC_DIR = 'camel/localization/packages'
+# juice text formats: every one of these in the game uses Windows line breaks, and a file
+# with bare LF lines is silently dropped (seen 2026-10-04: artifacts.juice -> free artifacts)
+JUICE_TEXT = ('.juice', '.mitem', '.mpower', '.mvendorconfig', '.mnpc', '.mskillscriptjuice', '.fruit')
+
+
+def crlf(data):
+    """normalize a juice text file to CRLF line breaks"""
+    return data.replace(b'\r\n', b'\n').replace(b'\n', b'\r\n')
+
+
 ORDER_FILE = 'load_order.txt'
 ORDER_HEADER = ('# Load order: top loads first, later mods win conflicts.\n'
                 '# Put "-" in front of a mod to disable it. Edit freely or use `python -m tfbw mods`.\n')
@@ -43,6 +53,7 @@ class Mod:
                     k, v = ln.split('=', 1)
                     self.meta[k.strip().lower()] = v.strip()
         self.files, self.tweaks, self.loc = {}, [], {}
+        self.new_loc = set()                       # string ids this mod adds (TSV "+GUID")
         self.errors = []
         gen_dir = os.path.join(root, 'generators')
         # generators/*.py: scripts with build(toc, mod_dir) that write graph edits (camel/....json)
@@ -90,7 +101,11 @@ class Mod:
             if '\t' not in line:
                 self.errors.append('%s:%d: expected GUID<TAB>text' % (path, i)); continue
             guid, text = line.split('\t', 1)
-            patch[guid.strip().upper()] = text.replace('\\n', '\n')
+            guid = guid.strip().upper()
+            if guid.startswith('+'):                  # a brand-new string (new items etc.)
+                guid = guid[1:].strip()
+                self.new_loc.add(guid)
+            patch[guid] = text.replace('\\n', '\n')
         return patch
 
     def _read_tweak(self, path):
@@ -359,16 +374,27 @@ def merge(toc, order, index=None):
         except KeyError:
             out.errors.append('no localization package %s' % gp); continue
         known = {g for g, _, _ in rows}
-        final, who = {}, defaultdict(list)
+        final, who, added = {}, defaultdict(list), []
         for m, patch in patches:
             for g, t in patch.items():
-                if g not in known:
-                    out.errors.append('[%s] %s: unknown string id %s' % (m.id, gp, g)); continue
+                if g not in known and g in m.new_loc:
+                    if not re.fullmatch(r'[0-9A-F]{32}', g):
+                        out.errors.append('[%s] %s: bad new string id %s' % (m.id, gp, g)); continue
+                    known.add(g)
+                    added.append(g)
+                elif g not in known:
+                    out.errors.append('[%s] %s: unknown string id %s (new strings start with +)' % (m.id, gp, g))
+                    continue
                 final[g] = t
                 who[g].append((m, t))
         for g, lst in who.items():
             if len({id(x[0]) for x in lst}) > 1 and len({x[1] for x in lst}) > 1:
                 out.conflicts.append('%s string %s: %s -> %s wins' % (
                     gp, g, ', '.join('%s="%s"' % (x[0].id, x[1][:30]) for x in lst), lst[-1][0].id))
+        rows = rows + [(g, 0, '') for g in added]
         out.files[gp] = locpack.write_bin([(g, v, final.get(g, t)) for g, v, t in rows], ver)
+    for gp, data in out.files.items():
+        if gp.endswith(JUICE_TEXT) and data.count(b'\n') != data.count(b'\r\n'):
+            out.files[gp] = crlf(data)
+            out.notes.append('%s: line breaks fixed to CRLF (the game ignores juice text without them)' % gp)
     return out
